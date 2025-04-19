@@ -38,15 +38,16 @@ local Workspace = game:GetService("Workspace")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local RunService = game:GetService("RunService")
 local LocalPlayer = Players.LocalPlayer
+local PlayerGui = LocalPlayer:WaitForChild("PlayerGui")
 
--- Create tabs
+-- Create all tabs
 local PlayerTab = Window:CreateTab("Player")
 local ESPTab = Window:CreateTab("ESP")
 local MiscTab = Window:CreateTab("Misc")
 local SettingsTab = Window:CreateTab("Settings")
 
 -- =============================================
--- IMPROVED ESP SYSTEM WITH RELIABLE HEALTH TRACKING
+-- IMPROVED ESP SYSTEM
 -- =============================================
 local ESP = {
     Enabled = false,
@@ -58,7 +59,7 @@ local ESP = {
     }
 }
 
--- Color customization
+-- ESP Color Customization
 ESPTab:CreateColorPicker({
     Name = "Survivors Color",
     Color = ESP.Colors.Survivors,
@@ -70,7 +71,7 @@ ESPTab:CreateColorPicker({
 })
 
 ESPTab:CreateColorPicker({
-    Name = "Killers Color",
+    Name = "Killers Color", 
     Color = ESP.Colors.Killers,
     Flag = "KillersColor",
     Callback = function(color)
@@ -79,7 +80,7 @@ ESPTab:CreateColorPicker({
     end
 })
 
--- Improved ESP Functions
+-- ESP Functions
 function ESP.CreateTag(character, team)
     if not character or not character.Parent then return end
     
@@ -91,7 +92,9 @@ function ESP.CreateTag(character, team)
     if ESP.Tags[character] then
         ESP.Tags[character]:Destroy()
         if ESP.Connections[character] then
-            ESP.Connections[character]:Disconnect()
+            for _, connection in pairs(ESP.Connections[character]) do
+                connection:Disconnect()
+            end
         end
     end
 
@@ -130,58 +133,45 @@ function ESP.CreateTag(character, team)
     healthLabel.TextSize = 12
     healthLabel.Parent = tag
 
-    -- More reliable health tracking
+    -- Health tracking function
     local function UpdateHealth()
-        -- Double-check humanoid exists and is alive
         if not humanoid or not humanoid.Parent or humanoid.Health <= 0 then
-            -- Remove tag completely when player dies
             if tag and tag.Parent then
                 tag:Destroy()
             end
             if ESP.Connections[character] then
-                ESP.Connections[character]:Disconnect()
+                for _, connection in pairs(ESP.Connections[character]) do
+                    connection:Disconnect()
+                end
                 ESP.Connections[character] = nil
             end
             ESP.Tags[character] = nil
             return
         end
-        
-        -- Update health display
         healthLabel.Text = string.format("HP: %d/%d", math.floor(humanoid.Health), math.floor(humanoid.MaxHealth))
     end
 
-    -- Set up multiple tracking methods
-    local function CharacterRemoved()
-        if tag and tag.Parent then
-            tag:Destroy()
-        end
-        if ESP.Connections[character] then
-            ESP.Connections[character]:Disconnect()
-            ESP.Connections[character] = nil
-        end
-        ESP.Tags[character] = nil
-    end
-
-    -- Multiple tracking methods for reliability
+    -- Multiple tracking methods
     ESP.Connections[character] = {
-        HealthChanged = humanoid.HealthChanged:Connect(UpdateHealth),
-        Died = humanoid.Died:Connect(CharacterRemoved),
-        Removed = character.AncestryChanged:Connect(function(_, parent)
-            if not parent then CharacterRemoved() end
+        humanoid.HealthChanged:Connect(UpdateHealth),
+        humanoid.Died:Connect(function()
+            if tag and tag.Parent then
+                tag:Destroy()
+            end
         end)
     }
     
-    ESP.Tags[character] = tag
-    UpdateHealth()
-    tag.Parent = head
-
-    -- Add periodic health check (in case events fail)
+    -- Periodic health check
     task.spawn(function()
         while tag and tag.Parent and humanoid and humanoid.Parent do
             UpdateHealth()
-            task.wait(1) -- Check every second
+            task.wait(1)
         end
     end)
+
+    ESP.Tags[character] = tag
+    UpdateHealth()
+    tag.Parent = head
 end
 
 function ESP.UpdateAllTags()
@@ -196,10 +186,8 @@ end
 function ESP.Initialize()
     -- Clean up existing
     for character, connections in pairs(ESP.Connections) do
-        if type(connections) == "table" then
-            for _, connection in pairs(connections) do
-                connection:Disconnect()
-            end
+        for _, connection in pairs(connections) do
+            connection:Disconnect()
         end
     end
     for _, tag in pairs(ESP.Tags) do
@@ -221,7 +209,6 @@ function ESP.Initialize()
             for _, character in ipairs(team:GetChildren()) do
                 if character:IsA("Model") then
                     task.spawn(function()
-                        -- Wait for humanoid to load
                         local humanoid = character:FindFirstChildOfClass("Humanoid") or character:WaitForChild("Humanoid", 2)
                         if humanoid then
                             ESP.CreateTag(character, teamName)
@@ -278,4 +265,172 @@ ESPTab:CreateToggle({
     end
 })
 
--- [Rest of your script (Stamina, Anti-Subspace, etc.) remains unchanged...]
+-- =============================================
+-- PLAYER TAB (PlayerTab)
+-- =============================================
+local sprintModule
+local isStaminaDrainDisabled = false
+local staminaMonitorConnection = nil
+
+local function modifyStaminaSettings()
+    pcall(function()
+        if not sprintModule then
+            sprintModule = require(ReplicatedStorage.Systems.Character.Game.Sprinting)
+        end
+        sprintModule.StaminaLossDisabled = isStaminaDrainDisabled
+    end)
+end
+
+local function monitorAndReapplyStamina()
+    if staminaMonitorConnection then
+        staminaMonitorConnection:Disconnect()
+    end
+    
+    staminaMonitorConnection = RunService.Heartbeat:Connect(function()
+        if isStaminaDrainDisabled then
+            modifyStaminaSettings()
+        end
+    end)
+end
+
+PlayerTab:CreateToggle({
+    Name = "Disable Stamina Drain",
+    CurrentValue = isStaminaDrainDisabled,
+    Flag = "StaminaToggle",
+    Callback = function(Value)
+        isStaminaDrainDisabled = Value
+        modifyStaminaSettings()
+        
+        if Value then
+            monitorAndReapplyStamina()
+            Rayfield:Notify({
+                Title = "Stamina",
+                Content = "Stamina drain disabled!",
+                Duration = 3,
+            })
+        else
+            if staminaMonitorConnection then
+                staminaMonitorConnection:Disconnect()
+                staminaMonitorConnection = nil
+            end
+            Rayfield:Notify({
+                Title = "Stamina",
+                Content = "Stamina drain enabled",
+                Duration = 3,
+            })
+        end
+    end,
+})
+
+PlayerTab:CreateButton({
+    Name = "Reset Character",
+    Callback = function()
+        local character = LocalPlayer.Character
+        if character then
+            local humanoid = character:FindFirstChildOfClass("Humanoid")
+            if humanoid then
+                humanoid.Health = 0
+            end
+        end
+    end,
+})
+
+-- =============================================
+-- MISC TAB (MiscTab)
+-- =============================================
+MiscTab:CreateButton({
+    Name = "Anti Subspace",
+    Callback = function()
+        pcall(function()
+            local path = ReplicatedStorage.Modules.StatusEffects.SurvivorExclusive
+            if path:FindFirstChild("Subspaced") then
+                path.Subspaced:Destroy()
+                Rayfield:Notify({
+                    Title = "Success",
+                    Content = "Subspace effect removed!",
+                    Duration = 5,
+                })
+            else
+                Rayfield:Notify({
+                    Title = "Error",
+                    Content = "Subspace effect not found",
+                    Duration = 5,
+                })
+            end
+        end)
+    end,
+})
+
+MiscTab:CreateToggle({
+    Name = "Auto Clicker",
+    CurrentValue = false,
+    Flag = "AutoClickerToggle",
+    Callback = function(Value)
+        if Value then
+            Rayfield:Notify({
+                Title = "Auto Clicker",
+                Content = "Feature coming soon!",
+                Duration = 3,
+            })
+        end
+    end
+})
+
+-- Round Timer Mover
+local function setupRoundTimerMover()
+    local roundTimer = PlayerGui:FindFirstChild("RoundTimer")
+    if not roundTimer then return nil end
+    
+    local mainFrame = roundTimer:FindFirstChild("Main")
+    if not mainFrame then return nil end
+    
+    return mainFrame
+end
+
+local mainFrame = setupRoundTimerMover()
+
+if mainFrame then
+    MiscTab:CreateSlider({
+        Name = "RoundTimer Position",
+        Range = {0, 1},
+        Increment = 0.01,
+        Suffix = "position",
+        CurrentValue = 0.5,
+        Flag = "RoundTimerPos",
+        Callback = function(value)
+            mainFrame.Position = UDim2.new(value, 0, mainFrame.Position.Y.Scale, mainFrame.Position.Y.Offset)
+        end,
+    })
+end
+
+-- =============================================
+-- SETTINGS TAB (SettingsTab)
+-- =============================================
+SettingsTab:CreateButton({
+    Name = "Save Settings",
+    Callback = function()
+        Rayfield:Notify({
+            Title = "Settings Saved",
+            Content = "Your settings have been saved",
+            Duration = 3,
+        })
+    end,
+})
+
+SettingsTab:CreateButton({
+    Name = "Destroy UI",
+    Callback = function()
+        Rayfield:Destroy()
+    end,
+})
+
+-- Initialize if ESP should be on by default
+if ESP.Enabled then
+    ESP.Initialize()
+end
+
+Rayfield:Notify({
+    Title = "Script Loaded",
+    Content = "Key link copied to clipboard!\nForsaken script activated!",
+    Duration = 5,
+})
