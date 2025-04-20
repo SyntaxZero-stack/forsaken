@@ -1,4 +1,4 @@
--- Set clipboard content
+-- Set clipboard content to new link
 setclipboard("https://linkunlocker.com/just-another-forsaken-script-rJ2JJ")
 
 -- Load Rayfield library
@@ -60,19 +60,28 @@ local MiscTab = Window:CreateTab("Misc")
 local SettingsTab = Window:CreateTab("Settings")
 
 -- =============================================
--- ESP SYSTEM
+-- IMPROVED ESP SYSTEM WITH ALL REQUESTED FEATURES
 -- =============================================
 local ESP = {
     Enabled = false,
     Tags = {},
+    ItemTags = {},
+    FootprintTags = {},
     Connections = {},
+    ItemConnections = {},
+    FootprintConnections = {},
     Colors = {
         Survivors = Color3.fromRGB(0, 255, 0),
-        Killers = Color3.fromRGB(255, 0, 0)
+        Killers = Color3.fromRGB(255, 0, 0),
+        Items = Color3.fromRGB(0, 191, 255),
+        Footprints = Color3.fromRGB(255, 165, 0)
     },
     Settings = {
         ShowDistance = true,
-        ShowHealth = true
+        ShowHealth = true,
+        ShowItems = false,
+        ShowFootprints = false,
+        HealthUpdateInterval = 0.2
     }
 }
 
@@ -97,6 +106,30 @@ local KillersColorPicker = ESPTab:CreateColorPicker({
         ESP.Colors.Killers = color
         if ESP.UpdateAllTags then
             ESP.UpdateAllTags()
+        end
+    end
+})
+
+local ItemsColorPicker = ESPTab:CreateColorPicker({
+    Name = "Items Color", 
+    Color = ESP.Colors.Items,
+    Flag = "ItemsColor",
+    Callback = function(color)
+        ESP.Colors.Items = color
+        if ESP.UpdateAllItemTags then
+            ESP.UpdateAllItemTags()
+        end
+    end
+})
+
+local FootprintsColorPicker = ESPTab:CreateColorPicker({
+    Name = "Footprints Color", 
+    Color = ESP.Colors.Footprints,
+    Flag = "FootprintsColor",
+    Callback = function(color)
+        ESP.Colors.Footprints = color
+        if ESP.UpdateAllFootprintTags then
+            ESP.UpdateAllFootprintTags()
         end
     end
 })
@@ -126,7 +159,93 @@ local ESPHealthToggle = ESPTab:CreateToggle({
     end
 })
 
--- ESP Functions
+local ESPItemsToggle = ESPTab:CreateToggle({
+    Name = "Show Items",
+    CurrentValue = ESP.Settings.ShowItems,
+    Flag = "ESPItemsToggle",
+    Callback = function(value)
+        ESP.Settings.ShowItems = value
+        if value then
+            ESP.InitializeItems()
+            Rayfield:Notify({
+                Title = "Item ESP",
+                Content = "Item ESP enabled",
+                Duration = 3,
+            })
+        else
+            ESP.ClearItems()
+            Rayfield:Notify({
+                Title = "Item ESP",
+                Content = "Item ESP disabled",
+                Duration = 3,
+            })
+        end
+    end
+})
+
+local ESPFootprintsToggle = ESPTab:CreateToggle({
+    Name = "Show Digital Footprints",
+    CurrentValue = ESP.Settings.ShowFootprints,
+    Flag = "ESPFootprintsToggle",
+    Callback = function(value)
+        ESP.Settings.ShowFootprints = value
+        if value then
+            ESP.InitializeFootprints()
+            Rayfield:Notify({
+                Title = "Digtal Footprint ESP",
+                Content = "Digital Footprints enabled",
+                Duration = 3,
+            })
+        else
+            ESP.ClearFootprints()
+            Rayfield:Notify({
+                Title = "Digital Footprint ESP",
+                Content = "Digital Footprints disabled",
+                Duration = 3,
+            })
+        end
+    end
+})
+
+-- Improved health tracking variables
+local healthTrackers = {}
+local lastHealthValues = {}
+
+-- Function to safely get humanoid health
+local function GetHumanoidHealth(character)
+    if not character or not character.Parent then return 0, 0 end
+    local humanoid = character:FindFirstChildOfClass("Humanoid")
+    if not humanoid then return 0, 0 end
+    return humanoid.Health, humanoid.MaxHealth
+end
+
+-- Function to create a basic ESP tag
+local function CreateBasicTag(adornee, size, name, color)
+    local tag = Instance.new("BillboardGui")
+    tag.Name = "ESPTag"
+    tag.Adornee = adornee
+    tag.Size = size
+    tag.StudsOffset = Vector3.new(0, 2.5, 0)
+    tag.AlwaysOnTop = true
+    tag.MaxDistance = 5000
+    tag.Enabled = true
+
+    local nameLabel = Instance.new("TextLabel")
+    nameLabel.Size = UDim2.new(1, 0, 1, 0)
+    nameLabel.Position = UDim2.new(0, 0, 0, 0)
+    nameLabel.BackgroundTransparency = 1
+    nameLabel.TextColor3 = color
+    nameLabel.TextStrokeColor3 = Color3.new(0, 0, 0)
+    nameLabel.TextStrokeTransparency = 0.5
+    nameLabel.Font = Enum.Font.GothamBold
+    nameLabel.TextSize = 14
+    nameLabel.Text = name
+    nameLabel.Parent = tag
+
+    return tag
+end
+
+-- Improved ESP tag creation with better health tracking
 function ESP.CreateTag(character, team)
     if not character or not character.Parent then return end
     
@@ -141,6 +260,10 @@ function ESP.CreateTag(character, team)
             for _, connection in pairs(ESP.Connections[character]) do
                 connection:Disconnect()
             end
+        end
+        if healthTrackers[character] then
+            healthTrackers[character]:Disconnect()
+            healthTrackers[character] = nil
         end
     end
 
@@ -197,9 +320,42 @@ function ESP.CreateTag(character, team)
         healthLabel.Parent = tag
     end
 
-    -- Update function
+    -- Improved update function with better health tracking
     local function UpdateTag()
-        if not humanoid or not humanoid.Parent or humanoid.Health <= 0 then
+        if not character or not character.Parent then
+            if tag and tag.Parent then
+                tag:Destroy()
+            end
+            return
+        end
+
+        local currentHealth, maxHealth = GetHumanoidHealth(character)
+        
+        -- Update distance
+        if distanceLabel then
+            local hrp = LocalPlayer.Character and LocalPlayer.Character:FindFirstChild("HumanoidRootPart")
+            local distance = hrp and math.floor((head.Position - hrp.Position).Magnitude) or "N/A"
+            distanceLabel.Text = "Distance: "..tostring(distance).."m"
+        end
+
+        -- Update health with color coding
+        if healthLabel then
+            healthLabel.Text = string.format("HP: %d/%d", math.floor(currentHealth), math.floor(maxHealth))
+            
+            -- Color code based on health ranges
+            if currentHealth <= 0 then
+                healthLabel.TextColor3 = Color3.fromRGB(128, 128, 128) -- Gray for dead
+            elseif currentHealth <= 39 then
+                healthLabel.TextColor3 = Color3.fromRGB(255, 0, 0) -- Red (39-1 HP)
+            elseif currentHealth <= 64 then
+                healthLabel.TextColor3 = Color3.fromRGB(255, 255, 0) -- Yellow (64-40 HP)
+            else
+                healthLabel.TextColor3 = Color3.fromRGB(0, 255, 0) -- Green (100-65 HP)
+            end
+        end
+
+        -- Check if character died
+        if currentHealth <= 0 then
             if tag and tag.Parent then
                 tag:Destroy()
             end
@@ -212,23 +368,10 @@ function ESP.CreateTag(character, team)
             ESP.Tags[character] = nil
             return
         end
-
-        -- Update distance
-        if distanceLabel then
-            local hrp = LocalPlayer.Character and LocalPlayer.Character:FindFirstChild("HumanoidRootPart")
-            local distance = hrp and math.floor((head.Position - hrp.Position).Magnitude) or "N/A"
-            distanceLabel.Text = "Distance: "..tostring(distance).."m"
-        end
-
-        -- Update health
-        if healthLabel then
-            healthLabel.Text = string.format("HP: %d/%d", math.floor(humanoid.Health), math.floor(humanoid.MaxHealth))
-        end
     end
 
-    -- Setup connections
+    -- Setup connections with improved health tracking
     ESP.Connections[character] = {
-        humanoid.HealthChanged:Connect(UpdateTag),
         humanoid.Died:Connect(function()
             if tag and tag.Parent then
                 tag:Destroy()
@@ -237,11 +380,236 @@ function ESP.CreateTag(character, team)
         RunService.Heartbeat:Connect(UpdateTag)
     }
 
+    -- Special health tracker with interval
+    healthTrackers[character] = RunService.Heartbeat:Connect(function()
+        local currentHealth, maxHealth = GetHumanoidHealth(character)
+        if lastHealthValues[character] ~= currentHealth then
+            UpdateTag()
+            lastHealthValues[character] = currentHealth
+        end
+    end)
+
     ESP.Tags[character] = tag
     UpdateTag()
     tag.Parent = head
 end
 
+-- Item ESP Functions
+function ESP.CreateItemTag(item)
+    if not item or not item.Parent then return end
+    
+    -- Clean up existing tag
+    if ESP.ItemTags[item] then
+        ESP.ItemTags[item]:Destroy()
+        if ESP.ItemConnections[item] then
+            ESP.ItemConnections[item]:Disconnect()
+            ESP.ItemConnections[item] = nil
+        end
+    end
+
+    local primaryPart = item:FindFirstChild("Handle") or item.PrimaryPart
+    if not primaryPart then return end
+
+    local tag = CreateBasicTag(
+        primaryPart,
+        UDim2.new(0, 200, 0, 50),
+        item.Name,
+        ESP.Colors.Items
+    )
+    
+    tag.Enabled = ESP.Settings.ShowItems
+    ESP.ItemTags[item] = tag
+    tag.Parent = primaryPart
+
+    -- Setup connection to remove tag if item is removed
+    ESP.ItemConnections[item] = item.AncestryChanged:Connect(function(_, parent)
+        if not parent then
+            if tag and tag.Parent then
+                tag:Destroy()
+            end
+            if ESP.ItemConnections[item] then
+                ESP.ItemConnections[item]:Disconnect()
+                ESP.ItemConnections[item] = nil
+            end
+            ESP.ItemTags[item] = nil
+        end
+    end)
+end
+
+function ESP.InitializeItems()
+    ESP.ClearItems()
+    
+    local map = Workspace:FindFirstChild("Map")
+    if not map then return end
+    
+    local ingame = map:FindFirstChild("Ingame")
+    if not ingame then return end
+
+    -- Find existing items
+    for _, item in pairs(ingame:GetDescendants()) do
+        if item:IsA("Tool") and (item.Name == "Medkit" or item.Name == "BloxyCola") then
+            ESP.CreateItemTag(item)
+        end
+    end
+
+    -- Listen for new items
+    ESP.ItemConnections.DescendantAdded = ingame.DescendantAdded:Connect(function(descendant)
+        if descendant:IsA("Tool") and (descendant.Name == "Medkit" or descendant.Name == "BloxyCola") then
+            ESP.CreateItemTag(descendant)
+        end
+    end)
+end
+
+function ESP.ClearItems()
+    for item, tag in pairs(ESP.ItemTags) do
+        if tag and tag.Parent then
+            tag:Destroy()
+        end
+        if ESP.ItemConnections[item] then
+            ESP.ItemConnections[item]:Disconnect()
+            ESP.ItemConnections[item] = nil
+        end
+    end
+    ESP.ItemTags = {}
+    
+    if ESP.ItemConnections.DescendantAdded then
+        ESP.ItemConnections.DescendantAdded:Disconnect()
+        ESP.ItemConnections.DescendantAdded = nil
+    end
+end
+
+function ESP.UpdateAllItemTags()
+    for item, tag in pairs(ESP.ItemTags) do
+        if tag and item and item.Parent then
+            tag.Enabled = ESP.Settings.ShowItems
+        else
+            if tag and tag.Parent then
+                tag:Destroy()
+            end
+            ESP.ItemTags[item] = nil
+        end
+    end
+end
+
+-- Digital Footprint ESP Functions
+function ESP.CreateFootprintTag(footprint)
+    if not footprint or not footprint.Parent then return end
+    
+    -- Clean up existing tag
+    if ESP.FootprintTags[footprint] then
+        ESP.FootprintTags[footprint]:Destroy()
+        if ESP.FootprintConnections[footprint] then
+            ESP.FootprintConnections[footprint]:Disconnect()
+            ESP.FootprintConnections[footprint] = nil
+        end
+    end
+
+    local tag = CreateBasicTag(
+        footprint,
+        UDim2.new(0, 200, 0, 50),
+        "DigtalFootprint",
+        ESP.Colors.Footprints
+    )
+    
+    tag.Enabled = ESP.Settings.ShowFootprints
+    ESP.FootprintTags[footprint] = tag
+    tag.Parent = footprint
+
+    -- Setup connection to remove tag if footprint is removed
+    ESP.FootprintConnections[footprint] = footprint.AncestryChanged:Connect(function(_, parent)
+        if not parent then
+            if tag and tag.Parent then
+                tag:Destroy()
+            end
+            if ESP.FootprintConnections[footprint] then
+                ESP.FootprintConnections[footprint]:Disconnect()
+                ESP.FootprintConnections[footprint] = nil
+            end
+            ESP.FootprintTags[footprint] = nil
+        end
+    end)
+end
+
+function ESP.InitializeFootprints()
+    ESP.ClearFootprints()
+    
+    local map = Workspace:FindFirstChild("Map")
+    if not map then return end
+    
+    local ingame = map:FindFirstChild("Ingame")
+    if not ingame then return end
+
+    -- Find killer username
+    local killerUsername = nil
+    local playersFolder = Workspace:FindFirstChild("Players")
+    if playersFolder then
+        local killers = playersFolder:FindFirstChild("Killers")
+        if killers then
+            for _, killer in pairs(killers:GetChildren()) do
+                if killer:IsA("Model") then
+                    local player = Players:GetPlayerFromCharacter(killer)
+                    if player then
+                        killerUsername = player.Name
+                        break
+                    end
+                end
+            end
+        end
+    end
+
+    if not killerUsername then return end
+
+    -- Find footprint folder
+    local footprintFolder = ingame:FindFirstChild(killerUsername.."Shadows")
+    if not footprintFolder then return end
+
+    -- Find existing footprints
+    for _, footprint in pairs(footprintFolder:GetDescendants()) do
+        if footprint.Name == "Shadow" and footprint:IsA("BasePart") then
+            ESP.CreateFootprintTag(footprint)
+        end
+    end
+
+    -- Listen for new footprints
+    ESP.FootprintConnections.DescendantAdded = footprintFolder.DescendantAdded:Connect(function(descendant)
+        if descendant.Name == "Shadow" and descendant:IsA("BasePart") then
+            ESP.CreateFootprintTag(descendant)
+        end
+    end)
+end
+
+function ESP.ClearFootprints()
+    for footprint, tag in pairs(ESP.FootprintTags) do
+        if tag and tag.Parent then
+            tag:Destroy()
+        end
+        if ESP.FootprintConnections[footprint] then
+            ESP.FootprintConnections[footprint]:Disconnect()
+            ESP.FootprintConnections[footprint] = nil
+        end
+    end
+    ESP.FootprintTags = {}
+    
+    if ESP.FootprintConnections.DescendantAdded then
+        ESP.FootprintConnections.DescendantAdded:Disconnect()
+        ESP.FootprintConnections.DescendantAdded = nil
+    end
+end
+
+function ESP.UpdateAllFootprintTags()
+    for footprint, tag in pairs(ESP.FootprintTags) do
+        if tag and footprint and footprint.Parent then
+            tag.Enabled = ESP.Settings.ShowFootprints
+        else
+            if tag and tag.Parent then
+                tag:Destroy()
+            end
+            ESP.FootprintTags[footprint] = nil
+        end
+    end
+end
+
+-- Main ESP Functions
 function ESP.UpdateAllTags()
     for character, tag in pairs(ESP.Tags) do
         if character and character.Parent then
@@ -301,6 +669,14 @@ function ESP.Initialize()
             end
         end
     end)
+
+    -- Initialize items and footprints if enabled
+    if ESP.Settings.ShowItems then
+        ESP.InitializeItems()
+    end
+    if ESP.Settings.ShowFootprints then
+        ESP.InitializeFootprints()
+    end
 end
 
 -- ESP Toggle
@@ -334,7 +710,7 @@ local ESPToggle = ESPTab:CreateToggle({
 })
 
 -- =============================================
--- PLAYER TAB
+-- PLAYER TAB (Remains the same as before)
 -- =============================================
 local sprintModule
 local isStaminaDrainDisabled = false
@@ -418,7 +794,7 @@ PlayerTab:CreateButton({
 })
 
 -- =============================================
--- MISC TAB
+-- MISC TAB (Remains the same as before)
 -- =============================================
 -- Anti-AFK
 local antiAfkEnabled = false
@@ -584,11 +960,23 @@ function SaveConfig(profileName)
                         R = ESP.Colors.Killers.R,
                         G = ESP.Colors.Killers.G,
                         B = ESP.Colors.Killers.B
+                    },
+                    Items = {
+                        R = ESP.Colors.Items.R,
+                        G = ESP.Colors.Items.G,
+                        B = ESP.Colors.Items.B
+                    },
+                    Footprints = {
+                        R = ESP.Colors.Footprints.R,
+                        G = ESP.Colors.Footprints.G,
+                        B = ESP.Colors.Footprints.B
                     }
                 },
                 Settings = {
                     ShowDistance = ESP.Settings.ShowDistance,
-                    ShowHealth = ESP.Settings.ShowHealth
+                    ShowHealth = ESP.Settings.ShowHealth,
+                    ShowItems = ESP.Settings.ShowItems,
+                    ShowFootprints = ESP.Settings.ShowFootprints
                 }
             },
             Player = {
@@ -656,6 +1044,26 @@ function LoadConfig(profileName)
                     ESP.Colors.Killers = color
                     KillersColorPicker:Set(color)
                 end
+                
+                if config.ESP.Colors.Items then
+                    local color = Color3.new(
+                        config.ESP.Colors.Items.R,
+                        config.ESP.Colors.Items.G,
+                        config.ESP.Colors.Items.B
+                    )
+                    ESP.Colors.Items = color
+                    ItemsColorPicker:Set(color)
+                end
+                
+                if config.ESP.Colors.Footprints then
+                    local color = Color3.new(
+                        config.ESP.Colors.Footprints.R,
+                        config.ESP.Colors.Footprints.G,
+                        config.ESP.Colors.Footprints.B
+                    )
+                    ESP.Colors.Footprints = color
+                    FootprintsColorPicker:Set(color)
+                end
             end
             
             if config.ESP.Settings then
@@ -664,6 +1072,12 @@ function LoadConfig(profileName)
                 
                 ESP.Settings.ShowHealth = config.ESP.Settings.ShowHealth or true
                 ESPHealthToggle:Set(ESP.Settings.ShowHealth)
+                
+                ESP.Settings.ShowItems = config.ESP.Settings.ShowItems or false
+                ESPItemsToggle:Set(ESP.Settings.ShowItems)
+                
+                ESP.Settings.ShowFootprints = config.ESP.Settings.ShowFootprints or false
+                ESPFootprintsToggle:Set(ESP.Settings.ShowFootprints)
             end
         end
         
