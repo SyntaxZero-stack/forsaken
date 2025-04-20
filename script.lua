@@ -1,5 +1,5 @@
 -- Set clipboard content
-setclipboard("https://linkunlocker.com/just-another-forsaken-script-0FJGK")
+setclipboard("https://linkunlocker.com/just-another-forsaken-script-rJ2JJ")
 
 -- Load Rayfield library
 local Rayfield = loadstring(game:HttpGet('https://sirius.menu/rayfield'))()
