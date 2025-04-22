@@ -58,6 +58,7 @@ local PlayerTab = Window:CreateTab("Player", 4483362458) -- Default player icon
 local ESPTab = Window:CreateTab("ESP", 4483345998) -- Default eye icon
 local MiscTab = Window:CreateTab("Misc", 4483344166) -- Default gear icon
 local SettingsTab = Window:CreateTab("Settings", 4483345950) -- Default settings icon
+
 -- =============================================
 -- IMPROVED ESP SYSTEM
 -- =============================================
@@ -205,6 +206,7 @@ local ESPFootprintsToggle = ESPTab:CreateToggle({
         end
     end
 })
+
 -- Improved health color with smooth transitions
 local function GetHealthColor(currentHealth, maxHealth)
     if currentHealth <= 0 then
@@ -389,6 +391,7 @@ function ESP.CreateTag(character, team)
     UpdateTag()
     tag.Parent = head
 end
+
 -- Item ESP Functions
 function ESP.CreateItemTag(item)
     if not item or not item.Parent then return end
@@ -559,6 +562,7 @@ function ESP.InitializeFootprints()
         end
     end)
 end
+
 function ESP.ClearFootprints()
     for footprint, tag in pairs(ESP.FootprintTags) do
         if tag and tag.Parent then
@@ -676,6 +680,7 @@ local ESPToggle = ESPTab:CreateToggle({
         end
     end
 })
+
 -- =============================================
 -- PLAYER TAB
 -- =============================================
@@ -759,6 +764,7 @@ PlayerTab:CreateButton({
         end
     end,
 })
+
 -- =============================================
 -- MISC TAB
 -- =============================================
@@ -946,6 +952,7 @@ if mainFrame then
         end,
     })
 end
+
 -- =============================================
 -- SETTINGS TAB WITH CONFIGURATION SYSTEM
 -- =============================================
